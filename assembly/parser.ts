@@ -1,5 +1,5 @@
 import { AnyOfRule, AnyRule, BetweenInclusiveRule, ByteSink, EqualsRule, EveryRule, KeywordRule, ManyRule, OptionalRule, Range, Rule } from "byte-parse-as/assembly";
-import { ArgumentsNode, BlockStatementNode, ExpressionNode, FunctionDeclarationStatementNode, FunctionExpressionNode, getTypeFromTypeName, IdentifierNode, Node, ParameterNode, ProgramNode, StatementNode, Type, TypeNode, VariableDeclarationStatementNode, VariableDeclaratorNode } from "./ast";
+import { ArgumentsNode, BlockStatementNode, CommaExpressionNode, ExpressionNode, FunctionDeclarationStatementNode, FunctionExpressionNode, getTypeFromTypeName, IdentifierNode, Node, ParameterNode, ProgramNode, StatementNode, TernaryExpressionNode, Type, TypeNode, VariableDeclarationStatementNode, VariableDeclaratorNode } from "./ast";
 
 export class EOF extends Rule {
   test(buffer: ByteSink, index: i32, range: Range): bool {
@@ -133,11 +133,21 @@ export class CloverParser {
     new KeywordRule("f32"),
     new KeywordRule("f64"),
   ]);
+  whitespacePaddedColon: Rule = new EveryRule([
+    new OptionalRule(new ManyRule(new AnyOfRule(" \t\r\n"))),
+    new EqualsRule(0x3A),
+    new OptionalRule(new ManyRule(new AnyOfRule(" \t\r\n"))),
+  ]);
   whitespacePaddedComma: Rule = new EveryRule([
     new OptionalRule(new ManyRule(new AnyOfRule(" \t\r\n"))),
     new EqualsRule(0x2C),
     new OptionalRule(new ManyRule(new AnyOfRule(" \t\r\n"))),
-  ]),
+  ]);
+  whitespacePaddedQuestion: Rule = new EveryRule([
+    new OptionalRule(new ManyRule(new AnyOfRule(" \t\r\n"))),
+    new EqualsRule(0x3F),
+    new OptionalRule(new ManyRule(new AnyOfRule(" \t\r\n"))),
+  ]);
   whitespaceComma: Rule = new EveryRule([
     new OptionalRule(new ManyRule(new AnyOfRule(" \t\r\n"))),
     new EqualsRule(0x2C),
@@ -329,7 +339,6 @@ export class CloverParser {
 
   parseArguments(buffer: ByteSink, index: i32, range: Range): bool {
     let start = index;
-    let end = index;
 
     if (this.parseParameterNode(buffer, index, range)) {
       let args = [] as ParameterNode[];
@@ -490,6 +499,83 @@ export class CloverParser {
           return true;
         }
       }
+    }
+    return false;
+  }
+
+  parseExpression(buffer: ByteSink, index: i32, range: Range): bool {
+    return this.parseCommaExpression(buffer, index, range);
+  }
+
+  parseCommaExpression(buffer: ByteSink, index: i32, range: Range): bool {
+    let start = index;
+
+    if (this.parseTernaryExpression(buffer, index, range)) {
+      let first = <ExpressionNode>this.result.value!;
+      index = range.end;
+
+      let expressions = [] as ExpressionNode[];
+
+      while (true) {
+        if (this.whitespacePaddedComma.test(buffer, index, range)) {
+          let next = range.end;
+
+          if (this.parseTernaryExpression(buffer, next, range)) {
+            index = range.end;
+            expressions.push(this.result.value!);
+            continue;
+          }
+        }
+        break;
+      }
+
+      if (expressions.length > 0) {
+        expressions.unshift(first);
+        range.start = start;
+        this.result.value = new CommaExpressionNode(range.copy(), expressions);
+      } else {
+        range.start = first.range.start;
+        range.end = first.range.end;
+        this.result.value = first;
+      }
+
+      return true;
+    }
+    return false;
+  }
+
+  parseTernaryExpression(buffer: ByteSink, index: i32, range: Range): bool {
+    let start = index;
+
+    if (this.parseAssignmentExpression(buffer, index, range)) {
+      index = range.end;
+      let condition = <ExpressionNode>this.result.value!;
+
+      if (this.whitespacePaddedQuestion.test(buffer, index, range)) {
+        index = range.end;
+
+        if (this.parseExpression(buffer, index, range)) {
+          index = range.end;
+          let truthy = <ExpressionNode>this.result.value!;
+
+          if (this.whitespacePaddedColon.test(buffer, index, range)) {
+            index = range.end;
+            
+            if (this.parseExpression(buffer, index, range)) {
+              let falsy = <ExpressionNode>this.result.value!;
+              range.start = start;
+
+              this.result.value = new TernaryExpressionNode(range.copy(), condition, truthy, falsy);
+              return true;
+            }
+          }
+        }
+      }
+
+      range.start = condition.range.start;
+      range.end = condition.range.end;
+      this.result.value = condition;
+      return true;
     }
     return false;
   }

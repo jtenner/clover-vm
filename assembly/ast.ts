@@ -144,3 +144,23 @@ export class VariableDeclarationStatementNode extends StatementNode {
     super(range);
   }
 }
+
+export class CommaExpressionNode extends ExpressionNode {
+  constructor(
+    range: Range,
+    public expressions: ExpressionNode[],
+  ) {
+    super(range);
+  }
+}
+
+export class TernaryExpressionNode extends ExpressionNode {
+  constructor(
+    range: Range,
+    public condition: ExpressionNode,
+    public truthy: ExpressionNode,
+    public falsy: ExpressionNode,
+  ) {
+    super(range);
+  }
+}
